@@ -59,7 +59,6 @@ class Chef
       @description = ''
       @category = ''
       @version = ''
-      @group_id = ''      
       @ignore = false
       @enabled = true
       @type = ''
@@ -129,14 +128,6 @@ class Chef
       )
     end
 
-    def group_id(arg=nil)
-      set_or_return(
-        :group_id,
-        arg,
-        :kind_of => String
-      )
-    end    
-    
     def version(arg=nil)
       set_or_return(
         :version,

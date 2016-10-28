@@ -25,15 +25,20 @@ impl = ARGV[0]
 json_context = ARGV[1]
 cookbook_path = ARGV[2] || ''
 
-puts "RUBY_PLATFORM: #{RUBY_PLATFORM}" if log_level == "debug"
+puts "RUBY_PLATFORM IS: #{RUBY_PLATFORM}"
 case RUBY_PLATFORM
 when /mingw/
   ostype = 'windows'
+  puts 'Setting ostype to windows'
 when /linux/
   ostype = 'linux'
+  puts 'Setting ostype to linux'
+else
+  puts 'leaving ostype as nil'
 end
 
-puts "os: #{ostype}" if log_level == "debug"
+# if os type is still nil, will default to linux way of doing things.
+puts "OS TYPE IS: #{ostype}"
 
 if ostype =~ /windows/
   impl = "oo::chef-12.11.18"
@@ -55,7 +60,7 @@ def gen_gemfile_and_install (gems, dsl, ostype)
     end
 
     current_dir = `pwd`.chomp
-    puts "pwd: #{current_dir}"
+    puts "CURRENT DIR IS: #{current_dir}"
 
     File.open('Gemfile', 'w') {|f| f.write(gemfile_content) }
     method = "install"
@@ -71,13 +76,12 @@ def gen_gemfile_and_install (gems, dsl, ostype)
     cmd = ""
     start_time = Time.now.to_i
     if ostype =~ /windows/
-      cmd = "c:/opscode/chef/embedded/bin/bundle #{method}"
+      puts "running: c:/opscode/chef/embedded/bin/bundle #{method}"
+      ec = system("c:/opscode/chef/embedded/bin/bundle #{method}")
     else
-      cmd = "bundle #{method}"
+      puts "running: bundle #{method}"
+      ec = system("bundle #{method}")
     end
-    puts cmd  
-    ec = system cmd
-    
     if !ec || ec.nil?
       puts "bundle #{method} failed with, #{$?}"
       exit 1
@@ -87,7 +91,7 @@ def gen_gemfile_and_install (gems, dsl, ostype)
 
     puts "change gem source back to rubygems_proxy"
     rubygems_proxy = `cat /opt/oneops/rubygems_proxy`.chomp
-    puts "rubygems_proxy: #{rubygems_proxy}" if log_level == "debug"
+    puts "RUBYGEMS PROXY IS: #{rubygems_proxy}"
     if ostype =~ /windows/
       system("c:/opscode/chef/embedded/bin/gem source --add #{rubygems_proxy}")
       sources = `c:\\opscode\\chef\\embedded\\bin\\gem source | egrep -v "CURRENT SOURCES|#{rubygems_proxy}"`.split("\n")
@@ -159,9 +163,9 @@ when "chef"
   if $?.to_i != 0 || current_version.to_s.index(version).nil?
     puts "current: #{current_version}, expected: #{version} - updating Gemfile"
     version_gems = [["chef",version]]
-    puts "version_gems: #{version_gems}" 
+    puts "VERSION GEMS IS: #{version_gems}"
     if !gem_config["chef-#{version}"].nil?
-      puts "found chef-#{version} in gem config" if log_level == 'debug'
+      puts "FOUND CHEF VERSION IN GEM CONFIG!!!"
       version_gems += gem_config["chef-#{version}"]
     end
     gem_list = gem_config["common"] + version_gems
@@ -179,11 +183,11 @@ when "chef"
     chef_config = "/home/oneops/#{cookbook_path}/components/cookbooks/chef-#{ci}.rb"
   end
 
+  puts "CHEF CONFIG IS: #{chef_config}"
 
   # generate chef_config if doesn't exist
   if !File::exist?(chef_config)
-    puts "config missing: #{chef_config}" if log_level == 'debug'
-    
+    puts "CONFIG DOESN'T EXIST"
     cookbook_full_path = chef_config.gsub("/chef-#{ci}.rb","")
     # when using alternate cookbooks include base cookbooks
     if cookbook_path.empty?
@@ -214,17 +218,15 @@ when "chef"
   end
 
   if ostype =~ /windows/
-    cmd = "c:/opscode/chef/embedded/bin/chef-solo.bat -l #{log_level} -F #{formatter} -c #{chef_config} -j #{json_context}"
+    puts "RUNNING: c:/opscode/chef/embedded/bin/chef-solo.bat -l #{log_level} -F #{formatter} -c #{chef_config} -j #{json_context}"
+    ec = system("c:/opscode/chef/embedded/bin/chef-solo.bat -l #{log_level} -F #{formatter} -c #{chef_config} -j #{json_context}")
   else
     bindir = `gem env | grep 'EXECUTABLE DIRECTORY' | awk '{print $4}'`.to_s.chomp
-    cmd = "#{bindir}/chef-solo -l #{log_level} -F #{formatter} -c #{chef_config} -j #{json_context}"
+    ec = system("#{bindir}/chef-solo -l #{log_level} -F #{formatter} -c #{chef_config} -j #{json_context}")
   end
-  puts cmd
-  ec = system cmd
-  
-  if $?.to_i != 0
+  if !ec || ec.nil?
     puts "CHEF SOLO failed, #{$?}"
-    exit $?.to_i 
+    exit 1
   end
 
 when "puppet"
