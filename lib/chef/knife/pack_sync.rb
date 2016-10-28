@@ -70,39 +70,6 @@ class Chef
         @packs_loader ||= Knife::Core::ObjectLoader.new(Chef::Pack, ui)
       end
 
-      
-      # safety measure: make sure no packs conflict in scope
-      def validate_packs
-        config[:pack_path] ||= Chef::Config[:pack_path]
-        config[:version] ||= Chef::Config[:version]
-         
-        # keyed by group-name-version 
-        pack_map = {}
-         
-        config[:pack_path].each do |dir|
-                    
-          pack_file_pattern = "#{dir}/*.rb"
-          files = Dir.glob(pack_file_pattern)
-          files.each do |file|
-            pack = packs_loader.load_from("packs", file)
-            version = config[:version].split(".").first
-            if !pack.version.empty?
-              version = pack.version.split(".").first
-            end
-            key = get_group(pack) + '-' + pack.name.downcase + '-' + version
-
-            if pack_map.has_key?(key)
-              puts "error: conflict of pack group-name-version: #{key} #{file} to #{pack_map[key]}"
-              puts "no packs loaded."
-              exit 1
-            else
-              pack_map[key] = "#{file}"
-            end
-          end
-        end  
-      end
-           
-
       def run
         config[:pack_path] ||= Chef::Config[:pack_path]
         config[:register] ||= Chef::Config[:register]
@@ -111,8 +78,6 @@ class Chef
         comments = "#{ENV['USER']}:#{$0}"
         comments += " #{config[:msg]}" if config[:msg]
 
-        validate_packs
-        
         if config[:all]
           config[:pack_path].each do |dir|
             pack_file_pattern = "#{dir}/*.rb"
@@ -232,34 +197,19 @@ class Chef
         Dir.chdir initial_dir
       end
 
-      
-      # default to knife.rb config's register attr for backwards compat
-      def get_group (pack)
-        if !pack.group_id.empty? 
-          group_id = pack.group_id
-        else
-          group_id = Chef::Config[:register]          
-        end
-        return group_id
-      end
-      
 
       def upload_template_from_file(file,comments)
-        pack = packs_loader.load_from("packs", file)
-        pack.name.downcase!
-        source = "#{Chef::Config[:nspath]}/#{get_group(pack)}/packs"
-        puts "source: #{source}"
+        source = "#{Chef::Config[:nspath]}/#{config[:register]}/packs"
 
         unless ensure_path_exists(source)
           return false
         end
 
+        pack = packs_loader.load_from("packs", file)
+        pack.name.downcase!
+
         # default to the global knife version if not specified
-        version = config[:version].split(".").first
-        if !pack.version.empty?
-          version = pack.version.split(".").first
-        end
-        pack.version(version)
+        pack.version(config[:version].split(".").first) if pack.version.empty?
 
         signature = Digest::MD5.hexdigest(pack.signature)
 
@@ -331,8 +281,8 @@ class Chef
         relsHash
       end
 
-      def fix_delta_cms(pack) 
-        nsPath = "#{Chef::Config[:nspath]}/#{get_group(pack)}/packs/#{pack.name}/#{pack.version}"
+      def fix_delta_cms(pack)
+        nsPath = "#{Chef::Config[:nspath]}/#{config[:register]}/packs/#{pack.name}/#{pack.version}"
         cmsEnvs = ['_default'] + Cms::Ci.all(:params => {:nsPath => nsPath, :ciClassName => 'mgmt.Mode'}).map(&:ciName)
         cmsEnvs.each do |env|
           relations = fix_rels_from_cms(pack, env)
@@ -342,7 +292,7 @@ class Chef
 
       def fix_rels_from_cms(pack, env = '_default')
         scope = (env == '_default') ? '' : "/#{env}"
-        cms_rels = Cms::Relation.all(:params => {:nsPath        => "#{Chef::Config[:nspath]}/#{get_group(pack)}/packs/#{pack.name}/#{pack.version}#{scope}",
+        cms_rels = Cms::Relation.all(:params => {:nsPath        => "#{Chef::Config[:nspath]}/#{config[:register]}/packs/#{pack.name}/#{pack.version}#{scope}",
                                                  :includeToCi   => true,
                                                  :includeFromCi => true})
         pack_rels = pack.relations
@@ -400,7 +350,7 @@ class Chef
 
     def fix_ci_from_cms(pack, env = '_default',relations,environments)
       scope = (env == '_default') ? '' : "/#{env}"
-      cms_resources = Cms::Ci.all( :params => { :nsPath => "#{Chef::Config[:nspath]}/#{get_group(pack)}/packs/#{pack.name}/#{pack.version}#{scope}"})
+      cms_resources = Cms::Ci.all( :params => { :nsPath => "#{Chef::Config[:nspath]}/#{config[:register]}/packs/#{pack.name}/#{pack.version}#{scope}"})
 
       pack_resources = pack.resources
 
@@ -424,7 +374,7 @@ class Chef
     end
 
     def check_pack_version(pack,signature)
-      source = "#{Chef::Config[:nspath]}/#{get_group(pack)}/packs"
+      source = "#{Chef::Config[:nspath]}/#{config[:register]}/packs"
       pack_version = Cms::Ci.first( :params => { :nsPath => "#{source}/#{pack.name}", :ciClassName => 'mgmt.Version', :ciName => pack.version })
       if pack_version.nil?
         ui.info( "Pack #{pack.name} version #{pack.version} not found")
@@ -441,7 +391,7 @@ class Chef
     end
 
     def setup_pack_version(pack,comments,signature)
-      source = "#{Chef::Config[:nspath]}/#{get_group(pack)}/packs"
+      source = "#{Chef::Config[:nspath]}/#{config[:register]}/packs"
       pack_ci = Cms::Ci.first( :params => { :nsPath => "#{source}", :ciClassName => 'mgmt.Pack', :ciName => pack.name })
       if pack_ci.nil?
         ui.info( "Creating pack #{pack.name}")
@@ -493,7 +443,7 @@ class Chef
     end
 
     def setup_mode(pack,env,comments)
-      source = "#{Chef::Config[:nspath]}/#{get_group(pack)}/packs"
+      source = "#{Chef::Config[:nspath]}/#{config[:register]}/packs"
       mode = Cms::Ci.first( :params => { :nsPath => "#{source}/#{pack.name}/#{pack.version}", :ciClassName => 'mgmt.Mode', :ciName => env })
       if mode.nil?
         ui.info( "Creating pack #{pack.name} version #{pack.version} environment mode #{env}")
@@ -560,7 +510,7 @@ class Chef
 
       platform.comments = comments
       platform.ciAttributes.description = pack.description
-      platform.ciAttributes.source = get_group(pack)
+      platform.ciAttributes.source = config[:register]
       platform.ciAttributes.pack = pack.name.capitalize
       platform.ciAttributes.version = pack.version
 
@@ -789,8 +739,7 @@ class Chef
     end
 
     def upload_template_serviced_bys(nspath,pack,resources,children,platform,env)
-
-      source = "#{Chef::Config[:nspath]}/#{get_group(pack)}/packs"
+      source = "#{Chef::Config[:nspath]}/#{config[:register]}/packs"
       relationName = 'mgmt.manifest.ServicedBy'
       serviced_by_list = Cms::Relation.all( :params => {  :ciId => platform.ciId,
                                                           :nsPath => nspath,
@@ -862,8 +811,7 @@ class Chef
     end
 
     def upload_template_serviced_by(nspath,pack,resources,children,platform,env)
-
-      source = "#{Chef::Config[:nspath]}/#{get_group(pack)}/packs"
+      source = "#{Chef::Config[:nspath]}/#{config[:register]}/packs"
       resources.each do |resource_name,resource|
         next if resource[:serviced_by].nil?
         relationName = 'mgmt.manifest.ServicedBy'
